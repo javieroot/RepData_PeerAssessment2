@@ -1,0 +1,306 @@
+---
+output:
+  html_document:
+    keep_md: yes
+---
+Impact of severe weather events on the USA population health and economy
+------------------------------------------
+
+### Synopsis
+
+Storms can have a considerable effect human health as well as the economy. This 
+project presents the types of storm related events that are responsible for most
+negative affects in USA from 1996 to 2011.
+ 
+Here we used the NOAA storm database to investigate which types of weather events
+caused greatest harm to population health(fatalities and injuries) and  the most 
+detrimental to the economy(property and crop damage) in the USA from 1996 to 
+2011. The data processing and analysis were performed in R and Rstudio. We present
+the ten most important weather event types causing human fatalities, injuries, 
+property damage or crop damage. The tornado was found to have caused most fatalities
+and injuries whereas floods caused the most property and crop damage.
+
+### Introduction
+Storms and other severe weather events can cause both public health and economic
+problems for communities and municipalities. Many severe events can result in 
+fatalities, injuries, and property damage, and preventing such outcomes to the 
+extent possible is a key concern.
+
+This project involves exploring the USA National Oceanic and Atmospheric 
+Administration's (NOAA) storm database. This database tracks characteristics of 
+major storms and weather events in the United States, including when and where 
+they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+### Goals
+The basic goal of this project is to explore the NOAA Storm Database and answer 
+the next questions about severe weather events:
+
+* Across the United States, which types of events are most harmful with respect
+  to population health?
+
+* Across the United States, which types of events have the greatest economic 
+  consequences?
+
+### Data Sources
+The data for this project come in the form of a comma-separated-value file 
+compressed via the bzip2 algorithm to reduce its size. You can download the file
+from the course web site:
+
+* [Storm Data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) [47Mb]
+
+There is also some documentation of the database available. Here you will find 
+how some of the variables are constructed/defined.
+
+* National Weather Service [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+
+* National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+The events in the database start in the year 1950 and end in November 2011. In 
+the earlier years of the database there are generally fewer events recorded, 
+most likely due to a lack of good records. More recent years should be 
+considered more complete.
+
+### Setting up required environment in R
+
+In the following code segment, we load the required packages in R and set the 
+required global options.
+```{r}
+library(plyr)
+library(ggplot2)
+library(knitr)
+opts_chunk$set(fig.path = 'figures/', fig.align = "center", echo=TRUE, comment = NA)
+# Disabling scientific notation
+options(scipen=999)
+```
+
+#### Changing locale time to English
+
+```{r}
+Sys.setlocale("LC_TIME", "english")
+```
+
+#### Setting the working directory
+
+Here we set the working directory as required, it can be changed according to 
+your preference in your personal computer. In Windows you must be careful with 
+the path, we can add or change the diagonal double forward slash in an inverted.
+In linux there is no problem.
+
+```{r}
+setwd("C:\\Users\\admin\\Respaldo\\Coursera\\Reproducible Research\\RepData_PeerAssessment2")
+```
+
+### Data Processing
+
+In this section the data is loaded into R and various operations are performed
+on the data to shape the analysis.
+
+#### Getting the required data
+
+We get the required data set by downloading it, in case is not exist Data 
+directory in the working directory, we use the following code segment to create it.
+
+```{r}
+dir.create("./Data", showWarnings = F)
+```
+
+Now we can download and load data set into R:
+
+```{r}
+if(!file.exists("./Data/stormdata.csv.bz2")){
+  fileUrl <- "http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+  download.file(fileUrl, destfile = "./Data/stormdata.csv.bz2")
+}
+
+storm <- read.csv(bzfile("./Data/stormdata.csv.bz2"),
+                  sep = ",", header = TRUE, stringsAsFactors = FALSE)
+```
+
+#### Data cleaning:
+
+The previous data frame has the following structure.
+
+```{r}
+str(storm)
+```
+
+The variables which are of our interest:
+```
+ BGN_DATE   :   The event date
+ EVTYPE     :   Type of weather events
+ FATALITIES :   Event-related fatalities
+ INJURIES   :   Event-related injuries
+ PROPDMG    :   Property damage amount
+ PROPDMGEXP :   Property damage units
+ CROPDMG    :   Crop damage amount
+ CROPDMGEXP :   Crop damage units
+``` 
+
+We need to reduce the table and only consider the variables that we will use:
+
+```{r}
+variables <- c("BGN_DATE", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG",
+               "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+storm <- storm[, variables]
+```
+
+The variables, PROPDMGEXP and CROPDMGEXP has different values which we can 
+observe from the following code segments.
+
+```{r}
+unique(storm$PROPDMGEXP)
+unique(storm$CROPDMGEXP)
+```
+
+We transfer the EVTYPE, PROPDMGEXP and CROPDMGEXP to uppercase for aggregation.
+We transfer the BGN_DATE to date time format.
+
+```{r}
+storm <- mutate(storm,
+                EVTYPE     = toupper(EVTYPE),
+                PROPDMGEXP = toupper(PROPDMGEXP),
+                CROPDMGEXP = toupper(CROPDMGEXP),
+                BGN_DATE   = as.Date(BGN_DATE, format="%m/%d/%Y %H:%M:%S")
+                )
+```
+
+For PROPDMGEXP and CROPDMGEXP we see the following exponent values, here we have
+decided to use the following strategy, from the variable descriptions in the 
+codebook and some assumptions.
+
+```
+ '-' or '+' or ""  -  Leave PROPDMG as it is
+ '0' - '7'         -  Multiply PROPDMG by 1eN i.e, 10^N where N belongs to {0, 1, 2, 3, 4, 5, 6, 7}
+ 'B'               -  Multiply PROPDMG by 1e9 i.e, 10^9
+ 'H'               -  Multiply PROPDMG by 1e2 i.e, 100
+ 'K'               -  Multiply PROPDMG by 1e3 i.e, 1000
+ 'M'               -  Multiply PROPDMG by 1e6 i.e, 10^6
+ 
+
+ '?' or ""  -  Leave CROPDMG as it is
+ '0'        -  Multiply CROPDMG by 1eN i.e, 10^N where N belongs to {0}
+ 'B'        -  Multiply CROPDMG by 1e9 i.e, 10^9
+ 'K'        -  Multiply CROPDMG by 1e3 i.e, 1000
+ 'M'        -  Multiply CROPDMG by 1e6 i.e, 10^6
+```
+
+We have to convert the input damage units to the same units to compute total 
+damage, we did this with this function:
+
+```{r}
+decode <- function(u){
+    switch(u, `-` = 1, `+` = 1, `?` = 1, ` ` = 1, `0` = 1, `1` = 10, `2` = 100, 
+              `3` = 1000, `4` = 10000, `5` = 100000, `6` = 1000000, `7` =10000000,
+              `8` = 100000000, `9` = 1000000000, B = 1000000000, H = 100, K = 1000,
+               M  = 1000000, 0)
+} 
+
+storm$propertyDemage <- storm$PROPDMG * sapply(storm$PROPDMGEXP, decode)
+storm$cropDemage     <- storm$CROPDMG * sapply(storm$CROPDMGEXP, decode)
+```
+
+Data prior to 1996 is only for tornado, thunderstorm, wind and hail events. From
+1996 to present, 48 event types are recorded ([according to](http://www.ncdc.noaa.gov/stormevents/details.jsp),
+only a subset of event types were monitored prior to 1996). We remove observations
+before 1996 because of data incompleteness which may lead to biased results.
+
+```{r}
+storm <- storm[storm$BGN_DATE >= as.Date("01/01/1996", format = "%m/%d/%Y"), ]
+```
+
+Now we grouping by event type with the next code:
+
+```{r}
+report <- ddply(storm,
+                .(EVTYPE),
+                summarise,
+                FATALITIES                    = sum(FATALITIES),
+                INJURIES                      = sum(INJURIES),
+                `PROPERTY DEMAGE AMOUNT`      = sum(propertyDemage),
+                `CROP DEMAGE AMOUNT`          = sum(cropDemage),
+                `TOTAL HARMFUL HEALTH EVENTS` = FATALITIES + INJURIES,
+                `TOTAL ECONOMIC CONSEQUENCES` = `PROPERTY DEMAGE AMOUNT` + `CROP DEMAGE AMOUNT`,
+                stringsAsFactors              = FALSE
+               )
+```
+
+### Results
+
+In this section, we will be analyzing the data we transformed and prepared in 
+the previous section.
+
+#### Most harmful to the health of the American population events
+
+The NOAA Storm database has information about deaths and injuries caused by 
+weather events. Here we analyze and report which ten weather events types were 
+most harmful to human health.
+
+```{r}
+index <- with(report, order(`TOTAL HARMFUL HEALTH EVENTS`, decreasing=TRUE))
+reportHarmfulHealthEvents <- report[index, c("EVTYPE", "FATALITIES", "INJURIES", "TOTAL HARMFUL HEALTH EVENTS")]
+row.names(reportHarmfulHealthEvents) <- NULL
+kable(head(reportHarmfulHealthEvents, 10), format = "pandoc", caption = "Top ten harmful health events")
+
+plot1 <- ggplot(head(reportHarmfulHealthEvents, 10),
+                aes(x=reorder(EVTYPE, -`TOTAL HARMFUL HEALTH EVENTS`), y=`TOTAL HARMFUL HEALTH EVENTS`)) +
+         geom_bar(stat="identity", fill = "steelblue", binwidth = 5) +
+         labs(title = "Top ten events most harmful to the health of the American population in the USA from 1996-2011",
+              x     = "Event type",
+              y     = "Total harmful health events") +
+         theme_bw() +
+         theme(plot.title   = element_text(lineheight=.8, size = 10, face  = "bold"),
+               axis.text.x  = element_text(lineheight=.8, size =  7, angle = 45, hjust = 1),
+               axis.text.y  = element_text(lineheight=.8, size =  7),
+               axis.title.x = element_text(lineheight=.8, size =  9),
+               axis.title.y = element_text(lineheight=.8, size =  9)
+               )
+print(plot1)
+```
+
+The Plot Bar Chart show events with the greatest harm to population health, as
+defined by number of FATALITIES and INJURIES. We can see the most harmful weather
+event is TORNADO.
+
+#### Events that have the greatest economic consequences in the United States
+
+Next, we asked which weather event types were most detrimental to the economy,
+i.e. caused the largest property and crop damage.
+
+Plot Bar Chart to show events with the greatest property damage:
+
+```{r}
+index <- with(report, order(`TOTAL ECONOMIC CONSEQUENCES`, decreasing = TRUE))
+reportEconomicConsequences <- report[index, c("EVTYPE", "PROPERTY DEMAGE AMOUNT",
+                                              "CROP DEMAGE AMOUNT", "TOTAL ECONOMIC CONSEQUENCES")]
+row.names(reportEconomicConsequences) <- NULL
+kable(head(reportEconomicConsequences, 10), format = "pandoc", caption = "Top ten economic consequences")
+
+plot2 <- ggplot(head(reportEconomicConsequences, 10),
+                aes(x=reorder(EVTYPE, -`TOTAL ECONOMIC CONSEQUENCES`), y=`TOTAL ECONOMIC CONSEQUENCES`)) +
+         geom_bar(stat="identity", fill = "steelblue", binwidth = 5) +
+         labs(title = "Top ten events that have the greatest economic consequences in the USA from 1996-2011",
+              x     = "Event type",
+              y     = "Total economic consequences") +
+         theme_bw() +
+         theme(plot.title   = element_text(lineheight=.8, size = 10, face  = "bold"),
+               axis.text.x  = element_text(lineheight=.8, size =  7, angle = 45, hjust = 1),
+               axis.text.y  = element_text(lineheight=.8, size =  7),
+               axis.title.x = element_text(lineheight=.8, size =  9),
+               axis.title.y = element_text(lineheight=.8, size =  9)
+               )
+print(plot2)
+```
+
+The plot show us, the weather event which have most economic impact across USA is FLOOD.
+
+### Conclusion
+
+Weather events that cause the greatest damage and casualties are tornado and 
+flood. The authorities should approach these two types of damage differently.
+
+### Future work
+
+Explore the damage and casualties based on state and time attributes.
+
+
+
